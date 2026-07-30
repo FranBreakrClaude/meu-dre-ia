@@ -296,6 +296,9 @@ def fetch_schedules(token: str, org_id: str, date_from: str, date_to: str) -> pd
         if not data_competencia:
             continue
 
+        descricao = it.get("description", "") or ""
+        contato = (it.get("stakeholder") or {}).get("name", "") or ""
+
         valor_categorias = [abs(float(cat.get("value", 0) or 0)) for cat in categories]
         soma_categorias = sum(valor_categorias)
         valor_schedule = abs(float(it.get("value", 0) or 0))
@@ -327,6 +330,8 @@ def fetch_schedules(token: str, org_id: str, date_from: str, date_to: str) -> pd
                     "categoria": nome_cat,
                     "valor": valor_cat,
                     "tipo_cat": cat.get("type", "out"),
+                    "descricao": descricao,
+                    "contato": contato,
                 })
         else:
             # Lançamento sem valor discriminado por categoria (comum em
@@ -344,6 +349,8 @@ def fetch_schedules(token: str, org_id: str, date_from: str, date_to: str) -> pd
                         "categoria": nome_cat,
                         "valor": valor_por_cat,
                         "tipo_cat": cat.get("type", "out"),
+                        "descricao": descricao,
+                        "contato": contato,
                     })
 
     df = pd.DataFrame(rows)
@@ -1206,6 +1213,51 @@ for linha, _tipo in DRE_LINES_ORDER:
         detalhe_fmt.insert(0, "Total no período", detalhe.sum(axis=1).apply(fmt_moeda))
         st.dataframe(detalhe_fmt, use_container_width=True)
         botao_exportar(detalhe, f"{linha}_categorias".replace(" ", "_"), label="⬇️ Exportar categorias")
+
+st.divider()
+
+# ---- Lançamentos individuais ----
+st.subheader("🧾 Lançamentos individuais")
+st.caption("Veja cada lançamento por trás dos números — filtra por categoria e/ou por texto (descrição ou contato).")
+
+categorias_disponiveis = ["(Todas as categorias)"] + sorted(df_raw["categoria"].unique().tolist())
+col_filtro1, col_filtro2 = st.columns([1, 1])
+with col_filtro1:
+    categoria_selecionada = st.selectbox("Categoria", categorias_disponiveis)
+with col_filtro2:
+    busca_texto = st.text_input("Buscar por descrição ou contato", "")
+
+df_lancamentos = df_raw.copy()
+if categoria_selecionada != "(Todas as categorias)":
+    df_lancamentos = df_lancamentos[df_lancamentos["categoria"] == categoria_selecionada]
+if busca_texto:
+    termo = busca_texto.lower()
+    df_lancamentos = df_lancamentos[
+        df_lancamentos["descricao"].str.lower().str.contains(termo, na=False)
+        | df_lancamentos["contato"].str.lower().str.contains(termo, na=False)
+    ]
+
+df_lancamentos = df_lancamentos.copy()
+df_lancamentos["valor_sinal"] = df_lancamentos.apply(
+    lambda r: r["valor"] * (1 if r["tipo_cat"] == "in" else -1), axis=1
+)
+data_ref_col = "data_competencia" if regime == "Competência" else "data_pagamento"
+df_lancamentos = df_lancamentos.sort_values(data_ref_col, ascending=False)
+
+tabela_lancamentos = df_lancamentos[[
+    data_ref_col, "categoria", "descricao", "contato", "valor_sinal"
+]].rename(columns={
+    data_ref_col: "Data", "categoria": "Categoria", "descricao": "Descrição",
+    "contato": "Contato", "valor_sinal": "Valor",
+})
+tabela_lancamentos["Data"] = tabela_lancamentos["Data"].dt.strftime("%d/%m/%Y")
+tabela_lancamentos_fmt = tabela_lancamentos.copy()
+tabela_lancamentos_fmt["Valor"] = tabela_lancamentos_fmt["Valor"].apply(fmt_moeda)
+
+st.caption(f"{len(tabela_lancamentos_fmt)} lançamento(s) encontrado(s) · Total: "
+           f"{fmt_moeda(tabela_lancamentos['Valor'].sum())}")
+st.dataframe(tabela_lancamentos_fmt, use_container_width=True, height=400)
+botao_exportar(tabela_lancamentos, "lancamentos_individuais", label="⬇️ Exportar lançamentos")
 
 st.divider()
 
