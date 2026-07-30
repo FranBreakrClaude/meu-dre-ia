@@ -714,7 +714,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 DRE Gerencial — GC Marketing & Gestão Estratégica")
+st.title("📊 DRE Gerencial — Breakr Assessoria")
 st.caption("Dados sincronizados automaticamente com o Nibo")
 
 token, org_id = get_credentials()
@@ -1031,12 +1031,12 @@ def gauge_kpi(titulo, valor_pct, valor_abs_fmt, faixa_max=60):
         },
         domain={"x": [0, 1], "y": [0, 1]},
     ))
-    fig.update_layout(
-        height=230, margin=dict(t=10, b=0, l=20, r=20),
-        title={"text": f"<b>{titulo}</b><br><span style='font-size:0.75em;color:#5A6472'>{valor_abs_fmt}</span>",
-               "x": 0.5, "xanchor": "center"},
-    )
+    fig.update_layout(height=200, margin=dict(t=20, b=0, l=30, r=30))
+    st.markdown(f"<p style='text-align:center; font-weight:700; font-size:1.05rem; "
+                f"color:#1F2A44; margin-bottom:0;'>{titulo}</p>", unsafe_allow_html=True)
     st.plotly_chart(fig, use_container_width=True)
+    st.markdown(f"<p style='text-align:center; font-size:0.85rem; color:#5A6472; "
+                f"margin-top:-10px;'>{md(valor_abs_fmt)}</p>", unsafe_allow_html=True)
 
 
 kc1, kc2 = st.columns(2)
