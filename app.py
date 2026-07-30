@@ -709,11 +709,14 @@ st.markdown("""
         border: 1px solid #E5E9EF;
         border-radius: 10px;
         padding: 16px 18px;
-        min-height: 118px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
+        height: 118px !important;
+        box-sizing: border-box;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+        overflow: hidden;
     }
+    div[data-testid="stMetric"] > div {width: 100%;}
     div[data-testid="stMetricLabel"] {font-size: 0.85rem; color: #5A6472;}
     div[data-testid="column"] {display: flex; flex-direction: column;}
     thead tr th {background-color: #1F2A44 !important; color: white !important;}
