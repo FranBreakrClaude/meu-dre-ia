@@ -1101,7 +1101,7 @@ st.divider()
 # ---- Tabela DRE comparativa ----
 st.subheader("DRE Comparativa Mês a Mês")
 
-dre_display_fmt = dre.copy().applymap(fmt_moeda)
+dre_display_fmt = dre.copy().map(fmt_moeda)
 
 margem_op_row = (dre.loc["Lucro Operacional"] / dre.loc["Receita Bruta"].replace(0, pd.NA) * 100).round(1)
 for mes in meses:
@@ -1171,7 +1171,7 @@ for linha, _tipo in DRE_LINES_ORDER:
             st.markdown("**Resumo por subgrupo:**")
             por_sub = sub.groupby(level="subgrupo").sum()
             por_sub = por_sub.loc[por_sub.sum(axis=1).sort_values(ascending=False).index]
-            por_sub_fmt = por_sub.applymap(fmt_moeda)
+            por_sub_fmt = por_sub.map(fmt_moeda)
             por_sub_fmt.insert(0, "Total no período", por_sub.sum(axis=1).apply(fmt_moeda))
             st.dataframe(por_sub_fmt, use_container_width=True)
             botao_exportar(por_sub, f"{linha}_subgrupos".replace(" ", "_"), label="⬇️ Exportar subgrupos")
@@ -1179,7 +1179,7 @@ for linha, _tipo in DRE_LINES_ORDER:
 
         detalhe = sub.droplevel("subgrupo") if "subgrupo" in sub.index.names else sub
         detalhe = detalhe.loc[detalhe.sum(axis=1).sort_values(ascending=False).index]
-        detalhe_fmt = detalhe.applymap(fmt_moeda)
+        detalhe_fmt = detalhe.map(fmt_moeda)
         detalhe_fmt.insert(0, "Total no período", detalhe.sum(axis=1).apply(fmt_moeda))
         st.dataframe(detalhe_fmt, use_container_width=True)
         botao_exportar(detalhe, f"{linha}_categorias".replace(" ", "_"), label="⬇️ Exportar categorias")
