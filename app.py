@@ -133,12 +133,12 @@ DRE_STRUCTURE = {
             "Financeira - juros fornecedores",
             "Financeira - negociação de divida",
             "Financeira - tarifas bancárias",
+            "Retirada de capital",
         ],
     },
     "Atividade de Financiamento": {  # espelha o relatório nativo do Nibo
         "sinal": -1,
         "categorias": [
-            "Retirada de capital",
             "Distribuição de lucros",
             "Juros sobre empréstimo bnds",
             "Pagamento empréstimo bnds",
@@ -727,10 +727,21 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+nome_empresa = st.secrets.get("NOME_EMPRESA")
+if not nome_empresa:
+    st.error(
+        "⚠️ **NOME_EMPRESA não configurado nos Secrets deste app.** "
+        "Isso é de propósito — sem essa configuração, não dá pra saber com "
+        "segurança de qual cliente são os dados mostrados aqui. Adicione "
+        "`NOME_EMPRESA = \"Nome do Cliente\"` em Settings > Secrets antes de "
+        "usar este link."
+    )
+    nome_empresa = "⚠️ EMPRESA NÃO IDENTIFICADA"
+
 st.markdown(f"""
 <div class="breakr-header">
     <img src="data:image/png;base64,{BREAKR_LOGO_B64}" alt="Breakr">
-    <h1>DRE Gerencial — Breakr Assessoria</h1>
+    <h1>DRE Gerencial — {nome_empresa}</h1>
 </div>
 """, unsafe_allow_html=True)
 st.caption("Dados sincronizados automaticamente com o Nibo")
@@ -1030,7 +1041,7 @@ def gauge_kpi(titulo, valor_pct, valor_abs_fmt, faixa_max=60):
                 f"color:#1F2A44; margin-bottom:0;'>{titulo}</p>", unsafe_allow_html=True)
     st.plotly_chart(fig, use_container_width=True)
     st.markdown(f"<p style='text-align:center; font-size:0.85rem; color:#5A6472; "
-                f"margin-top:-10px;'>{md(valor_abs_fmt)}</p>", unsafe_allow_html=True)
+                f"margin-top:-10px;'>{valor_abs_fmt.replace('$', '&#36;')}</p>", unsafe_allow_html=True)
 
 
 kc1, kc2 = st.columns(2)
