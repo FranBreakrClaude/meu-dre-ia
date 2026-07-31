@@ -1264,9 +1264,9 @@ for linha in dre_completo.index:
             piorou = abs(atual) > abs(anterior) * 1.02
             melhorou = abs(atual) < abs(anterior) * 0.98
         if melhorou:
-            seta = "🟢▲"
+            seta = "▲"
         elif piorou:
-            seta = "🔴▼"
+            seta = "▼"
         else:
             seta = ""
         if seta:
@@ -1353,7 +1353,7 @@ def destacar_totalizadores(row):
 styler = dre_display_fmt.style.apply(destacar_totalizadores, axis=1)
 st.dataframe(styler, use_container_width=True)
 st.caption(
-    "🟢▲ Melhorou vs. mês anterior · 🔴▼ Piorou vs. mês anterior (sem ícone = ficou estável) "
+    "▲ Melhorou vs. mês anterior · ▼ Piorou vs. mês anterior (sem ícone = ficou estável) "
     "| 🔴 Lucro Operacional ou Geração de Caixa negativos no mês "
     "| ✅ Meta atingida · ⚠️ Perto da meta (dentro de 10%) · ❌ Fora da meta · "
     "🎯 Meta definida — defina metas no expansor acima."
