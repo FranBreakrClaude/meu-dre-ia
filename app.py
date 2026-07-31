@@ -1245,7 +1245,9 @@ for mes in todos_os_meses:
 # Setinha discreta (▲ verde / ▼ vermelha) comparando com o mês anterior —
 # funciona mesmo sem nenhuma meta definida, pra dar uma leitura visual
 # rápida de "melhorou ou piorou" em qualquer linha. Só a setinha fica
-# colorida (via HTML) — o valor numérico continua na cor normal, pra não
+# # colorida naturalmente (📈 verde / 📉 vermelho são emojis já coloridos por
+# padrão, sem depender de HTML — o Streamlit não renderiza HTML dentro de
+# células de tabela) — o valor numérico continua na cor normal, pra não
 # dar a falsa impressão de que o valor em si é ruim quando só caiu um
 # pouco (ex: de R$30.000 para R$25.000, ainda positivo).
 for linha in dre_completo.index:
@@ -1262,13 +1264,13 @@ for linha in dre_completo.index:
             piorou = abs(atual) > abs(anterior) * 1.02
             melhorou = abs(atual) < abs(anterior) * 0.98
         if melhorou:
-            seta_html = '<span style="color:#2FBF71">▲</span>'
+            seta = "📈"
         elif piorou:
-            seta_html = f'<span style="color:{BREAKR_VERMELHO}">▼</span>'
+            seta = "📉"
         else:
-            seta_html = ""
-        if seta_html:
-            dre_display_fmt.loc[linha, mes] = f"{seta_html} {dre_display_fmt.loc[linha, mes]}"
+            seta = ""
+        if seta:
+            dre_display_fmt.loc[linha, mes] = f"{seta} {dre_display_fmt.loc[linha, mes]}"
 
 # Alerta fixo (🔴) no Lucro Operacional e na Geração de Caixa sempre que o
 # valor do mês estiver negativo — independe da variação vs. mês anterior.
@@ -1351,7 +1353,7 @@ def destacar_totalizadores(row):
 styler = dre_display_fmt.style.apply(destacar_totalizadores, axis=1)
 st.dataframe(styler, use_container_width=True)
 st.caption(
-    "▲ Melhorou vs. mês anterior · ▼ Piorou vs. mês anterior (sem seta = ficou estável) "
+    "📈 Melhorou vs. mês anterior · 📉 Piorou vs. mês anterior (sem ícone = ficou estável) "
     "| 🔴 Lucro Operacional ou Geração de Caixa negativos no mês "
     "| ✅ Meta atingida · ⚠️ Perto da meta (dentro de 10%) · ❌ Fora da meta · "
     "🎯 Meta definida — defina metas no expansor acima."
