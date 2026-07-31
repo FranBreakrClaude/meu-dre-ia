@@ -1457,6 +1457,75 @@ botao_exportar(tabela_lancamentos, "lancamentos_individuais", label="⬇️ Expo
 
 st.divider()
 
+# ---- Comparativo: mesmo dia do mês, mês atual x mês anterior ----
+st.subheader("📆 Comparativo — mesmo período do mês anterior")
+
+hoje_dt = datetime.today()
+dia_atual = hoje_dt.day
+mes_atual_comp_str = hoje_dt.strftime("%Y-%m")
+ultimo_dia_mes_anterior = hoje_dt.replace(day=1) - timedelta(days=1)
+mes_anterior_comp_str = ultimo_dia_mes_anterior.strftime("%Y-%m")
+
+st.caption(
+    f"Compara o dia 1 até o dia {dia_atual} de **{mes_atual_comp_str}** com o dia 1 até o "
+    f"dia {dia_atual} de **{mes_anterior_comp_str}** — só dados já Realizados (pagos/recebidos), "
+    f"pra ver se o ritmo deste mês está melhor ou pior que o mesmo ponto do mês passado."
+)
+
+df_comp_base = df_realizado.copy()
+df_comp_base["dia"] = df_comp_base[data_ref_col].dt.day
+
+df_atual_trunc = df_comp_base[
+    (df_comp_base["mes"] == mes_atual_comp_str) & (df_comp_base["dia"] <= dia_atual)
+]
+df_ant_trunc = df_comp_base[
+    (df_comp_base["mes"] == mes_anterior_comp_str) & (df_comp_base["dia"] <= dia_atual)
+]
+
+pivot_atual_trunc = build_pivot_por_categoria(df_atual_trunc)
+pivot_ant_trunc = build_pivot_por_categoria(df_ant_trunc)
+dre_atual_trunc = build_dre(pivot_atual_trunc)
+dre_ant_trunc = build_dre(pivot_ant_trunc)
+
+if dre_atual_trunc.empty and dre_ant_trunc.empty:
+    st.info("Não há dados suficientes em nenhum dos dois períodos para comparar.")
+else:
+    linhas_comp = ["Receita Bruta", "Custo Fixo", "Lucro Operacional", "Geração de Caixa Realizada"]
+    comp_cols = st.columns(len(linhas_comp))
+    for col, linha in zip(comp_cols, linhas_comp):
+        valor_atual = dre_atual_trunc.loc[linha, mes_atual_comp_str] if (
+            not dre_atual_trunc.empty and mes_atual_comp_str in dre_atual_trunc.columns
+        ) else 0.0
+        valor_ant = dre_ant_trunc.loc[linha, mes_anterior_comp_str] if (
+            not dre_ant_trunc.empty and mes_anterior_comp_str in dre_ant_trunc.columns
+        ) else 0.0
+        delta_pct = variacao(valor_atual, valor_ant)
+        col.metric(
+            f"{linha} (dia 1-{dia_atual})",
+            fmt_moeda(valor_atual),
+            f"{delta_pct:.1f}% vs. {mes_anterior_comp_str}" if delta_pct is not None else "—",
+            help=f"{mes_atual_comp_str}: {fmt_moeda(valor_atual)} · {mes_anterior_comp_str}: {fmt_moeda(valor_ant)}",
+        )
+
+    tabela_comp = pd.DataFrame({
+        f"{mes_anterior_comp_str} (dia 1-{dia_atual})": [
+            fmt_moeda(dre_ant_trunc.loc[l, mes_anterior_comp_str]) if (
+                not dre_ant_trunc.empty and mes_anterior_comp_str in dre_ant_trunc.columns
+            ) else fmt_moeda(0.0)
+            for l in dre.index
+        ],
+        f"{mes_atual_comp_str} (dia 1-{dia_atual})": [
+            fmt_moeda(dre_atual_trunc.loc[l, mes_atual_comp_str]) if (
+                not dre_atual_trunc.empty and mes_atual_comp_str in dre_atual_trunc.columns
+            ) else fmt_moeda(0.0)
+            for l in dre.index
+        ],
+    }, index=dre.index)
+    st.dataframe(tabela_comp, use_container_width=True)
+    botao_exportar(tabela_comp, "comparativo_mesmo_periodo")
+
+st.divider()
+
 # ---- Gráficos ----
 c1, c2 = st.columns(2)
 
