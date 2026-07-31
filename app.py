@@ -1242,13 +1242,12 @@ for mes in todos_os_meses:
     if pd.notna(margem_op_row[mes]):
         dre_display_fmt.loc["Lucro Operacional", mes] += f"  ({margem_op_row[mes]:.1f}%)"
 
-# Guarda a cor de cada célula (pra colorir as setinhas de variação depois),
-# numa grade do mesmo formato da tabela.
-cor_variacao = pd.DataFrame("", index=dre_completo.index, columns=todos_os_meses)
-
 # Setinha discreta (▲ verde / ▼ vermelha) comparando com o mês anterior —
 # funciona mesmo sem nenhuma meta definida, pra dar uma leitura visual
-# rápida de "melhorou ou piorou" em qualquer linha.
+# rápida de "melhorou ou piorou" em qualquer linha. Só a setinha fica
+# colorida (via HTML) — o valor numérico continua na cor normal, pra não
+# dar a falsa impressão de que o valor em si é ruim quando só caiu um
+# pouco (ex: de R$30.000 para R$25.000, ainda positivo).
 for linha in dre_completo.index:
     serie = dre_completo.loc[linha]
     for i, mes in enumerate(todos_os_meses):
@@ -1263,14 +1262,13 @@ for linha in dre_completo.index:
             piorou = abs(atual) > abs(anterior) * 1.02
             melhorou = abs(atual) < abs(anterior) * 0.98
         if melhorou:
-            seta, cor = "▲", "#2FBF71"
+            seta_html = '<span style="color:#2FBF71">▲</span>'
         elif piorou:
-            seta, cor = "▼", BREAKR_VERMELHO
+            seta_html = f'<span style="color:{BREAKR_VERMELHO}">▼</span>'
         else:
-            seta, cor = "", ""
-        if seta:
-            dre_display_fmt.loc[linha, mes] = f"{seta} {dre_display_fmt.loc[linha, mes]}"
-            cor_variacao.loc[linha, mes] = cor
+            seta_html = ""
+        if seta_html:
+            dre_display_fmt.loc[linha, mes] = f"{seta_html} {dre_display_fmt.loc[linha, mes]}"
 
 # Alerta fixo (🔴) no Lucro Operacional e na Geração de Caixa sempre que o
 # valor do mês estiver negativo — independe da variação vs. mês anterior.
@@ -1309,18 +1307,17 @@ EXPLICACAO_LINHA = {
 
 # Monta a tabela final intercalando uma linha "🎯 Meta" abaixo de qualquer
 # linha que tenha meta definida em pelo menos um mês do período. Também
-# monta uma grade de cores paralela (mesmo formato), pra colorir as
-# setinhas de variação na hora de exibir.
+# Monta a tabela final intercalando uma linha "🎯 Meta" abaixo de qualquer
+# linha que tenha meta definida em pelo menos um mês do período.
 linhas_subtotal = {"Receita Líquida", "Lucro Operacional", "Geração de Caixa Realizada"}
 linhas_com_meta_rotulo = set()
-index_labels, linhas_dados, cores_dados = [], [], []
+index_labels, linhas_dados = [], []
 for linha, tipo in DRE_LINES_ORDER:
     prefixo = "🔹 " if tipo == "subtotal" else "   "
     explicacao = EXPLICACAO_LINHA.get(linha, "")
     rotulo_realizado = f"{prefixo}{linha}" + (f" ({explicacao})" if explicacao else "")
     index_labels.append(rotulo_realizado)
     linhas_dados.append(dre_display_fmt.loc[linha].tolist())
-    cores_dados.append(cor_variacao.loc[linha].tolist())
 
     metas_linha = metas_atuais.get(linha, {})
     if any(metas_linha.get(m, 0.0) for m in todos_os_meses):
@@ -1330,11 +1327,9 @@ for linha, tipo in DRE_LINES_ORDER:
             fmt_moeda(metas_linha.get(m, 0.0)) if metas_linha.get(m, 0.0) else "—"
             for m in todos_os_meses
         ])
-        cores_dados.append([""] * len(todos_os_meses))
         linhas_com_meta_rotulo.add(rotulo_meta)
 
 dre_display_fmt = pd.DataFrame(linhas_dados, index=index_labels, columns=todos_os_meses)
-cores_dados_df = pd.DataFrame(cores_dados, index=index_labels, columns=todos_os_meses)
 
 # Marca no próprio nome da coluna se aquele mês é Realizado ou Projetado.
 _status_emoji = {"Realizado": "🟩", "Projetado": "🟨"}
@@ -1342,7 +1337,6 @@ novos_nomes_colunas = [
     f"{mes} {_status_emoji.get(status_por_mes.get(mes, ''), '')}".strip() for mes in todos_os_meses
 ]
 dre_display_fmt.columns = novos_nomes_colunas
-cores_dados_df.columns = novos_nomes_colunas
 
 
 def destacar_totalizadores(row):
@@ -1354,15 +1348,7 @@ def destacar_totalizadores(row):
     return [""] * len(row)
 
 
-def colorir_setas(_df):
-    return cores_dados_df.map(lambda c: f"color: {c};" if c else "")
-
-
-styler = (
-    dre_display_fmt.style
-    .apply(destacar_totalizadores, axis=1)
-    .apply(colorir_setas, axis=None)
-)
+styler = dre_display_fmt.style.apply(destacar_totalizadores, axis=1)
 st.dataframe(styler, use_container_width=True)
 st.caption(
     "▲ Melhorou vs. mês anterior · ▼ Piorou vs. mês anterior (sem seta = ficou estável) "
