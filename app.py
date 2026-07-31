@@ -1087,6 +1087,22 @@ def gauge_kpi(titulo, valor_pct, valor_abs_fmt, faixa_max=60):
                 f"margin-top:-10px;'>{valor_abs_fmt.replace('$', '&#36;')}</p>", unsafe_allow_html=True)
 
 
+try:
+    cmo_mes = abs(pivot_categoria.xs(
+        ("Custo Fixo", "Despesas com Folha - CMO"), level=("linha_dre", "subgrupo")
+    ).reindex(columns=meses, fill_value=0.0).sum()[ultimo_mes])
+except KeyError:
+    cmo_mes = 0.0
+try:
+    cf_mes = abs(pivot_categoria.xs(
+        ("Custo Fixo", "Despesa Operacional Administrativa"), level=("linha_dre", "subgrupo")
+    ).reindex(columns=meses, fill_value=0.0).sum()[ultimo_mes])
+except KeyError:
+    cf_mes = 0.0
+
+margem_cmo = (cmo_mes / receita * 100) if receita else 0
+margem_cf = (cf_mes / receita * 100) if receita else 0
+
 kc1, kc2 = st.columns(2)
 with kc1:
     gauge_kpi("De cada R$ 100 que entra, quanto vira lucro?", margem_op,
@@ -1094,6 +1110,14 @@ with kc1:
 with kc2:
     gauge_kpi("De cada R$ 100 que entra, quanto sobra no caixa?", margem_caixa,
               f"Sobra de caixa {fmt_moeda(caixa)} de {fmt_moeda(receita)} faturados")
+
+kc3, kc4 = st.columns(2)
+with kc3:
+    gauge_kpi("De cada R$ 100 que entra, quanto vai pra CMO (folha)?", margem_cmo,
+              f"Folha {fmt_moeda(cmo_mes)} de {fmt_moeda(receita)} faturados", faixa_max=60)
+with kc4:
+    gauge_kpi("De cada R$ 100 que entra, quanto vai pra CF (administrativo)?", margem_cf,
+              f"Administrativo {fmt_moeda(cf_mes)} de {fmt_moeda(receita)} faturados", faixa_max=60)
 
 
 st.divider()
