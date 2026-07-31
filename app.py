@@ -1000,6 +1000,35 @@ def variacao(atual, anterior):
     return (atual - anterior) / abs(anterior) * 100
 
 
+# ---- Resumo em linguagem simples (pra quem não é da área financeira) ----
+receita_tmp = dre.loc["Receita Bruta", ultimo_mes]
+lucro_op_tmp = dre.loc["Lucro Operacional", ultimo_mes]
+caixa_tmp = dre.loc["Geração de Caixa Realizada", ultimo_mes]
+
+if caixa_tmp >= 0 and lucro_op_tmp >= 0:
+    cor_status, emoji_status, texto_status = "#2FBF71", "🟢", "Mês positivo"
+elif lucro_op_tmp >= 0:
+    cor_status, emoji_status, texto_status = "#F3A712", "🟡", "Lucro positivo, mas o caixa ficou negativo"
+else:
+    cor_status, emoji_status, texto_status = BREAKR_VERMELHO, "🔴", "Mês exigiu atenção"
+
+frase_resumo = (
+    f"Em <b>{ultimo_mes}</b>, a empresa faturou <b>{fmt_moeda(receita_tmp)}</b>. "
+    f"Depois de pagar todas as contas do dia a dia, sobrou <b>{fmt_moeda(lucro_op_tmp)}</b> de lucro. "
+    f"Considerando também investimentos e outras saídas de dinheiro, o caixa "
+    f"{'aumentou' if caixa_tmp >= 0 else 'diminuiu'} em <b>{fmt_moeda(abs(caixa_tmp))}</b> no mês."
+)
+
+st.markdown(f"""
+<div style="background-color:{cor_status}15; border-left: 5px solid {cor_status};
+            border-radius: 8px; padding: 16px 20px; margin-bottom: 18px;">
+    <div style="font-weight:700; color:{cor_status}; font-size:1rem; margin-bottom:6px;">
+        {emoji_status} {texto_status}
+    </div>
+    <div style="color:#1F2A44; font-size:0.95rem; line-height:1.5;">{frase_resumo.replace('$', '&#36;')}</div>
+</div>
+""", unsafe_allow_html=True)
+
 # ---- KPIs ----
 st.subheader(f"Indicadores — {ultimo_mes}")
 k1, k2, k3, k4, k5 = st.columns(5)
@@ -1014,14 +1043,21 @@ receita_ant = dre.loc["Receita Bruta", mes_anterior] if mes_anterior else None
 caixa_ant = dre.loc["Geração de Caixa Realizada", mes_anterior] if mes_anterior else None
 lucro_op_ant = dre.loc["Lucro Operacional", mes_anterior] if mes_anterior else None
 
-k1.metric("Receita Bruta", fmt_moeda(receita),
-          f"{variacao(receita, receita_ant):.1f}%" if variacao(receita, receita_ant) is not None else None)
-k2.metric("Lucro Operacional", fmt_moeda(lucro_op), f"{margem_op:.1f}% margem")
-k3.metric("Variação Lucro Op.",
-          f"{variacao(lucro_op, lucro_op_ant):.1f}%" if variacao(lucro_op, lucro_op_ant) is not None else "—")
-k4.metric("Caixa Gerado", fmt_moeda(caixa),
-          f"{variacao(caixa, caixa_ant):.1f}%" if variacao(caixa, caixa_ant) is not None else None)
-k5.metric("Meses no período", f"{len(meses)}")
+k1.metric("Faturamento", fmt_moeda(receita),
+          f"{variacao(receita, receita_ant):.1f}%" if variacao(receita, receita_ant) is not None else None,
+          help="Tudo que a empresa recebeu de vendas no mês, antes de pagar qualquer conta.")
+k2.metric("Lucro do Mês", fmt_moeda(lucro_op), f"{margem_op:.1f}% do faturamento",
+          help="O que sobra do faturamento depois de pagar impostos, fornecedores, salários e "
+               "despesas do dia a dia — mas ainda ANTES de investimentos e outras saídas.")
+k3.metric("Lucro vs. mês anterior",
+          f"{variacao(lucro_op, lucro_op_ant):.1f}%" if variacao(lucro_op, lucro_op_ant) is not None else "—",
+          help="O lucro deste mês cresceu ou caiu em relação ao mês anterior?")
+k4.metric("Sobra/Falta de Caixa", fmt_moeda(caixa),
+          f"{variacao(caixa, caixa_ant):.1f}%" if variacao(caixa, caixa_ant) is not None else None,
+          help="Depois de tudo — lucro, investimentos, empréstimos, retiradas — quanto dinheiro "
+               "de fato sobrou (ou faltou) no caixa da empresa este mês.")
+k5.metric("Meses no período", f"{len(meses)}",
+          help="Quantos meses estão sendo mostrados nos filtros da barra lateral.")
 
 st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
 
@@ -1053,11 +1089,11 @@ def gauge_kpi(titulo, valor_pct, valor_abs_fmt, faixa_max=60):
 
 kc1, kc2 = st.columns(2)
 with kc1:
-    gauge_kpi("Margem Operacional sobre Faturamento", margem_op,
-              f"Lucro Op. {fmt_moeda(lucro_op)} ÷ Receita {fmt_moeda(receita)}")
+    gauge_kpi("De cada R$ 100 que entra, quanto vira lucro?", margem_op,
+              f"Lucro {fmt_moeda(lucro_op)} de {fmt_moeda(receita)} faturados")
 with kc2:
-    gauge_kpi("Caixa Gerado sobre Faturamento", margem_caixa,
-              f"Caixa {fmt_moeda(caixa)} ÷ Receita {fmt_moeda(receita)}")
+    gauge_kpi("De cada R$ 100 que entra, quanto sobra no caixa?", margem_caixa,
+              f"Sobra de caixa {fmt_moeda(caixa)} de {fmt_moeda(receita)} faturados")
 
 
 st.divider()
@@ -1130,6 +1166,21 @@ for linha in dre.index:
             if emoji:
                 dre_display_fmt.loc[linha, mes] += f" {emoji}"
 
+# Explicações em português simples para quem não é da área financeira.
+EXPLICACAO_LINHA = {
+    "Receita Bruta": "tudo que entrou de vendas",
+    "Tributos": "impostos e taxas sobre vendas",
+    "Receita Líquida": "vendas já descontando impostos",
+    "Custo Fixo": "salários + despesas do dia a dia",
+    "Lucro Operacional": "o que sobrou depois das contas do dia a dia",
+    "Investimentos": "compras de equipamento, marketing, etc.",
+    "Despesas Financeiras": "juros, tarifas bancárias, retiradas de sócio",
+    "Atividade de Financiamento": "empréstimos pagos, distribuição de lucro",
+    "Captação de Recursos": "dinheiro captado (aporte, empréstimo)",
+    "Não Classificado": "ainda sem categoria definida",
+    "Geração de Caixa Realizada": "quanto o caixa mudou de fato no mês",
+}
+
 # Monta a tabela final intercalando uma linha "🎯 Meta" abaixo de qualquer
 # linha que tenha meta definida em pelo menos um mês do período.
 linhas_subtotal = {"Receita Líquida", "Lucro Operacional", "Geração de Caixa Realizada"}
@@ -1137,7 +1188,8 @@ linhas_com_meta_rotulo = set()
 index_labels, linhas_dados = [], []
 for linha, tipo in DRE_LINES_ORDER:
     prefixo = "🔹 " if tipo == "subtotal" else "   "
-    rotulo_realizado = prefixo + linha
+    explicacao = EXPLICACAO_LINHA.get(linha, "")
+    rotulo_realizado = f"{prefixo}{linha}" + (f" ({explicacao})" if explicacao else "")
     index_labels.append(rotulo_realizado)
     linhas_dados.append(dre_display_fmt.loc[linha].tolist())
 
@@ -1155,7 +1207,7 @@ dre_display_fmt = pd.DataFrame(linhas_dados, index=index_labels, columns=meses)
 
 
 def destacar_totalizadores(row):
-    nome_linha = row.name.replace("🔹 ", "").strip()
+    nome_linha = row.name.replace("🔹 ", "").split(" (")[0].strip()
     if row.name in linhas_com_meta_rotulo:
         return ["color: #8A94A6; font-style: italic;"] * len(row)
     if nome_linha in linhas_subtotal:
