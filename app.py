@@ -278,9 +278,11 @@ def fetch_schedules(token: str, org_id: str, date_from: str, date_to: str) -> pd
         return pd.DataFrame()
 
     # --- normalização dos campos ---
-    # Calculamos a FRAÇÃO efetivamente paga/recebida de cada lançamento
-    # (value vs paidValue), não um booleano isPaid puro — isso captura
-    # pagamentos parciais corretamente.
+    # Para cada lançamento, dividimos o valor em duas partes:
+    #   - Realizado: a fração já efetivamente paga/recebida (paidValue)
+    #   - Projetado: a fração ainda em aberto (openValue) — vem de contas a
+    #     pagar/receber agendadas mas não liquidadas, útil para projeção de
+    #     meses futuros.
     rows = []
     for it in all_items:
         categories = it.get("categories") or [{
@@ -309,49 +311,54 @@ def fetch_schedules(token: str, org_id: str, date_from: str, date_to: str) -> pd
             paid_value = valor_schedule if it.get("isPaid") else 0.0
         paid_value = abs(float(paid_value or 0))
 
+        open_value = it.get("openValue")
+        if open_value is None:
+            open_value = max(valor_schedule - paid_value, 0.0)
+        open_value = abs(float(open_value or 0))
+
         if denom > 0:
             fracao_paga = min(paid_value / denom, 1.0)
+            fracao_projetada = min(open_value / denom, max(1.0 - fracao_paga, 0.0))
         else:
             fracao_paga = 1.0 if it.get("isPaid") else 0.0
+            fracao_projetada = 0.0 if it.get("isPaid") else 1.0
 
-        if fracao_paga <= 0:
+        if fracao_paga <= 0 and fracao_projetada <= 0:
             continue
+
+        def _adicionar(nome_cat, valor_cat, tipo_cat, status):
+            if valor_cat == 0:
+                return
+            rows.append({
+                "data_competencia": data_competencia,
+                "data_pagamento": data_pagamento,
+                "categoria": nome_cat,
+                "valor": valor_cat,
+                "tipo_cat": tipo_cat,
+                "descricao": descricao,
+                "contato": contato,
+                "status": status,
+            })
 
         if soma_categorias > 0:
             # Caso normal: cada categoria tem seu próprio valor de rateio.
             for cat, valor_cat_base in zip(categories, valor_categorias):
                 nome_cat = cat.get("categoryName") or cat.get("name") or "Não categorizado"
-                valor_cat = valor_cat_base * fracao_paga
-                if valor_cat == 0:
-                    continue
-                rows.append({
-                    "data_competencia": data_competencia,
-                    "data_pagamento": data_pagamento,
-                    "categoria": nome_cat,
-                    "valor": valor_cat,
-                    "tipo_cat": cat.get("type", "out"),
-                    "descricao": descricao,
-                    "contato": contato,
-                })
+                tipo_cat = cat.get("type", "out")
+                _adicionar(nome_cat, valor_cat_base * fracao_paga, tipo_cat, "Realizado")
+                _adicionar(nome_cat, valor_cat_base * fracao_projetada, tipo_cat, "Projetado")
         else:
             # Lançamento sem valor discriminado por categoria (comum em
-            # entradas manuais já criadas como pagas) — usa o valor
-            # efetivamente pago, dividido entre as categorias existentes,
-            # em vez de descartar o lançamento inteiro.
-            valor_realizado = paid_value if paid_value > 0 else valor_schedule * fracao_paga
-            if valor_realizado > 0 and categories:
-                valor_por_cat = valor_realizado / len(categories)
+            # entradas manuais já criadas como pagas) — divide entre as
+            # categorias existentes, em vez de descartar o lançamento inteiro.
+            valor_realizado_total = paid_value if paid_value > 0 else valor_schedule * fracao_paga
+            valor_projetado_total = open_value if open_value > 0 else valor_schedule * fracao_projetada
+            if categories and (valor_realizado_total > 0 or valor_projetado_total > 0):
                 for cat in categories:
                     nome_cat = cat.get("categoryName") or cat.get("name") or "Não categorizado"
-                    rows.append({
-                        "data_competencia": data_competencia,
-                        "data_pagamento": data_pagamento,
-                        "categoria": nome_cat,
-                        "valor": valor_por_cat,
-                        "tipo_cat": cat.get("type", "out"),
-                        "descricao": descricao,
-                        "contato": contato,
-                    })
+                    tipo_cat = cat.get("type", "out")
+                    _adicionar(nome_cat, valor_realizado_total / len(categories), tipo_cat, "Realizado")
+                    _adicionar(nome_cat, valor_projetado_total / len(categories), tipo_cat, "Projetado")
 
     df = pd.DataFrame(rows)
     if df.empty:
@@ -759,7 +766,12 @@ with st.sidebar:
     st.header("Filtros")
     hoje = datetime.today()
     data_inicio = st.date_input("Data inicial", value=hoje.replace(day=1) - timedelta(days=180))
-    data_fim = st.date_input("Data final", value=hoje)
+    data_fim = st.date_input(
+        "Data final", value=hoje,
+        help="Estenda para uma data futura para ver meses PROJETADOS na DRE "
+             "(baseados em contas a pagar/receber já agendadas no Nibo, "
+             "ainda não liquidadas).",
+    )
     regime = st.radio(
         "Regime de apresentação",
         options=["Competência", "Caixa (data de pagamento)"],
@@ -771,6 +783,11 @@ with st.sidebar:
     )
     if st.button("🔄 Atualizar dados", use_container_width=True):
         st.cache_data.clear()
+    st.divider()
+    num_socios_painel = st.number_input(
+        "Número de sócios", min_value=1, max_value=20, value=1, step=1,
+        help="Usado para calcular o pró-labore sugerido por sócio no painel principal.",
+    )
     st.divider()
     st.caption("Fonte: API Nibo · Atualização automática a cada 1h (cache)")
 
@@ -819,7 +836,10 @@ def md(texto: str) -> str:
     return texto.replace("$", "\\$")
 
 
-pivot_categoria = build_pivot_por_categoria(df_raw)
+df_realizado = df_raw[df_raw["status"] == "Realizado"].copy()
+df_projetado = df_raw[df_raw["status"] == "Projetado"].copy()
+
+pivot_categoria = build_pivot_por_categoria(df_realizado)
 dre = build_dre(pivot_categoria)
 
 if dre.empty or len(dre.columns) == 0:
@@ -829,7 +849,7 @@ if dre.empty or len(dre.columns) == 0:
         "DRE_STRUCTURE no topo do app.py."
     )
     resumo_categorias = (
-        df_raw.groupby("categoria")["valor"]
+        df_realizado.groupby("categoria")["valor"]
         .agg(qtd_lancamentos="count", valor_total="sum")
         .sort_values("valor_total", ascending=False)
         .reset_index()
@@ -1119,6 +1139,21 @@ with kc4:
     gauge_kpi("De cada R$ 100 que entra, quanto vai pra CF (administrativo)?", margem_cf,
               f"Administrativo {fmt_moeda(cf_mes)} de {fmt_moeda(receita)} faturados", faixa_max=60)
 
+st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
+st.markdown("**👤 Pró-labore sugerido (10% do faturamento)**")
+prolabore_sugerido_10pct = receita * 0.10
+prolabore_por_socio_10pct = prolabore_sugerido_10pct / num_socios_painel
+pl_c1, pl_c2 = st.columns(2)
+pl_c1.metric(
+    f"Total sugerido — {ultimo_mes}", fmt_moeda(prolabore_sugerido_10pct),
+    help="10% do faturamento do mês, uma referência simples de mercado — não considera "
+         "despesas fixas nem meta de caixa (pra isso, use o Simulador de metas mais abaixo).",
+)
+pl_c2.metric(
+    f"Por sócio ({num_socios_painel}x)", fmt_moeda(prolabore_por_socio_10pct),
+    help="Total sugerido dividido igualmente entre os sócios. Ajuste o número de sócios "
+         "na barra lateral.",
+)
 
 st.divider()
 
@@ -1170,22 +1205,52 @@ metas_atuais = carregar_metas()
 
 st.divider()
 
+# ---- Projeção: mescla Realizado com Projetado (contas a pagar/receber) ----
+pivot_categoria_proj = build_pivot_por_categoria(df_projetado)
+dre_proj = build_dre(pivot_categoria_proj)
+
+todos_os_meses = sorted(set(dre.columns) | set(dre_proj.columns if not dre_proj.empty else []))
+dre_completo = pd.DataFrame(index=dre.index, columns=todos_os_meses, dtype=float)
+status_por_mes = {}
+
+for mes in todos_os_meses:
+    tem_realizado = mes in dre.columns and dre[mes].abs().sum() > 0
+    tem_projetado = (not dre_proj.empty) and mes in dre_proj.columns and dre_proj[mes].abs().sum() > 0
+    valor_real = dre[mes] if mes in dre.columns else 0.0
+    valor_proj = dre_proj[mes] if (not dre_proj.empty and mes in dre_proj.columns) else 0.0
+    if tem_realizado and tem_projetado:
+        dre_completo[mes] = valor_real + valor_proj
+        status_por_mes[mes] = "Misto"
+    elif tem_realizado:
+        dre_completo[mes] = valor_real
+        status_por_mes[mes] = "Realizado"
+    elif tem_projetado:
+        dre_completo[mes] = valor_proj
+        status_por_mes[mes] = "Projetado"
+    else:
+        dre_completo[mes] = 0.0
+        status_por_mes[mes] = "Sem dados"
+
 # ---- Tabela DRE comparativa ----
 st.subheader("DRE Comparativa Mês a Mês")
+st.caption(
+    "🟩 Realizado (já pago/recebido) · 🟨 Projetado (contas a pagar/receber agendadas, "
+    "ainda não liquidadas) · 🟧 Misto (mês em andamento: parte já realizada, parte projetada)."
+)
 
-dre_display_fmt = dre.copy().map(fmt_moeda)
+dre_display_fmt = dre_completo.copy().map(fmt_moeda)
 
-margem_op_row = (dre.loc["Lucro Operacional"] / dre.loc["Receita Bruta"].replace(0, pd.NA) * 100).round(1)
-for mes in meses:
+margem_op_row = (dre_completo.loc["Lucro Operacional"] / dre_completo.loc["Receita Bruta"].replace(0, pd.NA) * 100).round(1)
+for mes in todos_os_meses:
     if pd.notna(margem_op_row[mes]):
         dre_display_fmt.loc["Lucro Operacional", mes] += f"  ({margem_op_row[mes]:.1f}%)"
 
 # Ícone de tendência (🟢 melhorou / 🔴 piorou / ⚪ estável) comparando com o
 # mês anterior — funciona mesmo sem nenhuma meta definida, pra dar uma
 # leitura visual rápida de "tá bom ou não" em qualquer linha.
-for linha in dre.index:
-    serie = dre.loc[linha]
-    for i, mes in enumerate(meses):
+for linha in dre_completo.index:
+    serie = dre_completo.loc[linha]
+    for i, mes in enumerate(todos_os_meses):
         if i == 0:
             continue  # primeiro mês não tem "mês anterior" pra comparar
         atual, anterior = serie.iloc[i], serie.iloc[i - 1]
@@ -1200,12 +1265,12 @@ for linha in dre.index:
         dre_display_fmt.loc[linha, mes] = f"{icone_tendencia} {dre_display_fmt.loc[linha, mes]}"
 
 # Anexa o ícone de status (✅/⚠️/❌) em cada célula que tiver meta definida.
-for linha in dre.index:
+for linha in dre_completo.index:
     metas_linha = metas_atuais.get(linha, {})
-    for mes in meses:
+    for mes in todos_os_meses:
         meta_val = metas_linha.get(mes, 0.0)
         if meta_val:
-            emoji, _texto = status_meta(linha, dre.loc[linha, mes], meta_val)
+            emoji, _texto = status_meta(linha, dre_completo.loc[linha, mes], meta_val)
             if emoji:
                 dre_display_fmt.loc[linha, mes] += f" {emoji}"
 
@@ -1237,16 +1302,22 @@ for linha, tipo in DRE_LINES_ORDER:
     linhas_dados.append(dre_display_fmt.loc[linha].tolist())
 
     metas_linha = metas_atuais.get(linha, {})
-    if any(metas_linha.get(m, 0.0) for m in meses):
+    if any(metas_linha.get(m, 0.0) for m in todos_os_meses):
         rotulo_meta = "      🎯 Meta"
         index_labels.append(rotulo_meta)
         linhas_dados.append([
             fmt_moeda(metas_linha.get(m, 0.0)) if metas_linha.get(m, 0.0) else "—"
-            for m in meses
+            for m in todos_os_meses
         ])
         linhas_com_meta_rotulo.add(rotulo_meta)
 
-dre_display_fmt = pd.DataFrame(linhas_dados, index=index_labels, columns=meses)
+dre_display_fmt = pd.DataFrame(linhas_dados, index=index_labels, columns=todos_os_meses)
+
+# Marca no próprio nome da coluna se aquele mês é Realizado/Projetado/Misto.
+_status_emoji = {"Realizado": "🟩", "Projetado": "🟨", "Misto": "🟧", "Sem dados": ""}
+dre_display_fmt.columns = [
+    f"{mes} {_status_emoji.get(status_por_mes.get(mes, ''), '')}".strip() for mes in todos_os_meses
+]
 
 
 def destacar_totalizadores(row):
@@ -1265,7 +1336,7 @@ st.caption(
     "| ✅ Meta atingida · ⚠️ Perto da meta (dentro de 10%) · ❌ Fora da meta · "
     "🎯 Meta definida — defina metas no expansor acima."
 )
-botao_exportar(dre, "dre_gerencial", label="⬇️ Exportar DRE completa para Excel")
+botao_exportar(dre_completo, "dre_gerencial", label="⬇️ Exportar DRE completa para Excel")
 
 st.divider()
 
@@ -1317,16 +1388,20 @@ st.divider()
 
 # ---- Lançamentos individuais ----
 st.subheader("🧾 Lançamentos individuais")
-st.caption("Veja cada lançamento por trás dos números — filtra por categoria e/ou por texto (descrição ou contato).")
+st.caption("Veja cada lançamento por trás dos números — filtra por categoria, status e/ou por texto (descrição ou contato).")
 
 categorias_disponiveis = ["(Todas as categorias)"] + sorted(df_raw["categoria"].unique().tolist())
-col_filtro1, col_filtro2 = st.columns([1, 1])
+col_filtro0, col_filtro1, col_filtro2 = st.columns([1, 1, 1])
+with col_filtro0:
+    status_selecionado = st.selectbox("Status", ["Realizado", "Projetado", "(Ambos)"])
 with col_filtro1:
     categoria_selecionada = st.selectbox("Categoria", categorias_disponiveis)
 with col_filtro2:
     busca_texto = st.text_input("Buscar por descrição ou contato", "")
 
 df_lancamentos = df_raw.copy()
+if status_selecionado != "(Ambos)":
+    df_lancamentos = df_lancamentos[df_lancamentos["status"] == status_selecionado]
 if categoria_selecionada != "(Todas as categorias)":
     df_lancamentos = df_lancamentos[df_lancamentos["categoria"] == categoria_selecionada]
 if busca_texto:
@@ -1344,9 +1419,9 @@ data_ref_col = "data_competencia" if regime == "Competência" else "data_pagamen
 df_lancamentos = df_lancamentos.sort_values(data_ref_col, ascending=False)
 
 tabela_lancamentos = df_lancamentos[[
-    data_ref_col, "categoria", "descricao", "contato", "valor_sinal"
+    data_ref_col, "status", "categoria", "descricao", "contato", "valor_sinal"
 ]].rename(columns={
-    data_ref_col: "Data", "categoria": "Categoria", "descricao": "Descrição",
+    data_ref_col: "Data", "status": "Status", "categoria": "Categoria", "descricao": "Descrição",
     "contato": "Contato", "valor_sinal": "Valor",
 })
 tabela_lancamentos["Data"] = tabela_lancamentos["Data"].dt.strftime("%d/%m/%Y")
@@ -1411,13 +1486,14 @@ st.divider()
 
 with st.expander("🔬 Diagnóstico — total bruto por mês (para comparar com o relatório do Nibo)"):
     st.caption(
-        "Esta tabela soma TUDO que a API retornou, com o sinal do campo "
-        "'tipo_cat' (entrada/saída), antes de qualquer classificação de "
-        "DRE. Se o total de algum mês aqui já não bater com o total de "
-        "movimentações que você vê no próprio Nibo para o mesmo mês, o "
-        "problema é na busca de dados (API/filtro), não na classificação."
+        "Esta tabela soma TUDO que a API retornou como REALIZADO (pago/recebido), "
+        "com o sinal do campo 'tipo_cat' (entrada/saída), antes de qualquer "
+        "classificação de DRE. Não inclui valores Projetados. Se o total de "
+        "algum mês aqui já não bater com o total de movimentações que você vê "
+        "no próprio Nibo para o mesmo mês, o problema é na busca de dados "
+        "(API/filtro), não na classificação."
     )
-    df_diag = df_raw.copy()
+    df_diag = df_realizado.copy()
     df_diag["valor_sinal"] = df_diag.apply(
         lambda r: r["valor"] * (1 if r["tipo_cat"] == "in" else -1), axis=1
     )
