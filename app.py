@@ -1140,13 +1140,13 @@ with kc4:
               f"Administrativo {fmt_moeda(cf_mes)} de {fmt_moeda(receita)} faturados", faixa_max=60)
 
 st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
-st.markdown("**👤 Pró-labore sugerido (10% do faturamento)**")
-prolabore_sugerido_10pct = receita * 0.10
+st.markdown("**👤 Pró-labore sugerido (12% do faturamento)**")
+prolabore_sugerido_10pct = receita * 0.12
 prolabore_por_socio_10pct = prolabore_sugerido_10pct / num_socios_painel
 pl_c1, pl_c2 = st.columns(2)
 pl_c1.metric(
     f"Total sugerido — {ultimo_mes}", fmt_moeda(prolabore_sugerido_10pct),
-    help="10% do faturamento do mês, uma referência simples de mercado — não considera "
+    help="12% do faturamento do mês, uma referência simples de mercado — não considera "
          "despesas fixas nem meta de caixa (pra isso, use o Simulador de metas mais abaixo).",
 )
 pl_c2.metric(
@@ -1264,9 +1264,9 @@ for linha in dre_completo.index:
             piorou = abs(atual) > abs(anterior) * 1.02
             melhorou = abs(atual) < abs(anterior) * 0.98
         if melhorou:
-            seta = "📈"
+            seta = "🟢▲"
         elif piorou:
-            seta = "📉"
+            seta = "🔴▼"
         else:
             seta = ""
         if seta:
@@ -1353,7 +1353,7 @@ def destacar_totalizadores(row):
 styler = dre_display_fmt.style.apply(destacar_totalizadores, axis=1)
 st.dataframe(styler, use_container_width=True)
 st.caption(
-    "📈 Melhorou vs. mês anterior · 📉 Piorou vs. mês anterior (sem ícone = ficou estável) "
+    "🟢▲ Melhorou vs. mês anterior · 🔴▼ Piorou vs. mês anterior (sem ícone = ficou estável) "
     "| 🔴 Lucro Operacional ou Geração de Caixa negativos no mês "
     "| ✅ Meta atingida · ⚠️ Perto da meta (dentro de 10%) · ❌ Fora da meta · "
     "🎯 Meta definida — defina metas no expansor acima."
