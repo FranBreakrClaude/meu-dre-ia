@@ -1156,6 +1156,25 @@ for mes in meses:
     if pd.notna(margem_op_row[mes]):
         dre_display_fmt.loc["Lucro Operacional", mes] += f"  ({margem_op_row[mes]:.1f}%)"
 
+# Ícone de tendência (🟢 melhorou / 🔴 piorou / ⚪ estável) comparando com o
+# mês anterior — funciona mesmo sem nenhuma meta definida, pra dar uma
+# leitura visual rápida de "tá bom ou não" em qualquer linha.
+for linha in dre.index:
+    serie = dre.loc[linha]
+    for i, mes in enumerate(meses):
+        if i == 0:
+            continue  # primeiro mês não tem "mês anterior" pra comparar
+        atual, anterior = serie.iloc[i], serie.iloc[i - 1]
+        quer_crescer = linha in LINHAS_META_SUPERAR
+        if quer_crescer:
+            piorou = atual < anterior * 0.98
+            melhorou = atual > anterior * 1.02
+        else:
+            piorou = abs(atual) > abs(anterior) * 1.02
+            melhorou = abs(atual) < abs(anterior) * 0.98
+        icone_tendencia = "🟢" if melhorou else ("🔴" if piorou else "⚪")
+        dre_display_fmt.loc[linha, mes] = f"{icone_tendencia} {dre_display_fmt.loc[linha, mes]}"
+
 # Anexa o ícone de status (✅/⚠️/❌) em cada célula que tiver meta definida.
 for linha in dre.index:
     metas_linha = metas_atuais.get(linha, {})
@@ -1217,7 +1236,11 @@ def destacar_totalizadores(row):
 
 styler = dre_display_fmt.style.apply(destacar_totalizadores, axis=1)
 st.dataframe(styler, use_container_width=True)
-st.caption("✅ Meta atingida · ⚠️ Perto da meta (dentro de 10%) · ❌ Fora da meta · 🎯 Meta definida — defina metas no expansor acima.")
+st.caption(
+    "🟢 Melhorou vs. mês anterior · 🔴 Piorou vs. mês anterior · ⚪ Ficou estável "
+    "| ✅ Meta atingida · ⚠️ Perto da meta (dentro de 10%) · ❌ Fora da meta · "
+    "🎯 Meta definida — defina metas no expansor acima."
+)
 botao_exportar(dre, "dre_gerencial", label="⬇️ Exportar DRE completa para Excel")
 
 st.divider()
