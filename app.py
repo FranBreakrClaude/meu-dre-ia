@@ -1466,20 +1466,40 @@ mes_atual_comp_str = hoje_dt.strftime("%Y-%m")
 ultimo_dia_mes_anterior = hoje_dt.replace(day=1) - timedelta(days=1)
 mes_anterior_comp_str = ultimo_dia_mes_anterior.strftime("%Y-%m")
 
+comparar_mes_completo = st.checkbox(
+    "Comparar o mês completo (em vez de só até o dia de hoje)",
+    help="Desmarcado: compara dia 1 até hoje nos dois meses (ritmo do mês em "
+         "andamento). Marcado: compara o mês anterior inteiro contra o mês "
+         "retrasado inteiro — útil quando ambos já estão fechados.",
+)
+
+if comparar_mes_completo:
+    dia_corte = 31  # cobre qualquer mês inteiro
+    # No modo "mês completo", compara o mês anterior inteiro (já fechado)
+    # contra o mês retrasado inteiro — evita usar o mês atual, que ainda
+    # está em andamento e não fechou.
+    mes_a_comparar = mes_anterior_comp_str
+    penultimo_mes_dt = ultimo_dia_mes_anterior.replace(day=1) - timedelta(days=1)
+    mes_b_comparar = penultimo_mes_dt.strftime("%Y-%m")
+    mes_atual_comp_str, mes_anterior_comp_str = mes_a_comparar, mes_b_comparar
+    rotulo_periodo = "mês completo"
+else:
+    dia_corte = dia_atual
+    rotulo_periodo = f"dia 1-{dia_atual}"
+
 st.caption(
-    f"Compara o dia 1 até o dia {dia_atual} de **{mes_atual_comp_str}** com o dia 1 até o "
-    f"dia {dia_atual} de **{mes_anterior_comp_str}** — só dados já Realizados (pagos/recebidos), "
-    f"pra ver se o ritmo deste mês está melhor ou pior que o mesmo ponto do mês passado."
+    f"Compara **{mes_atual_comp_str}** ({rotulo_periodo}) com **{mes_anterior_comp_str}** "
+    f"({rotulo_periodo}) — só dados já Realizados (pagos/recebidos)."
 )
 
 df_comp_base = df_realizado.copy()
 df_comp_base["dia"] = df_comp_base[data_ref_col].dt.day
 
 df_atual_trunc = df_comp_base[
-    (df_comp_base["mes"] == mes_atual_comp_str) & (df_comp_base["dia"] <= dia_atual)
+    (df_comp_base["mes"] == mes_atual_comp_str) & (df_comp_base["dia"] <= dia_corte)
 ]
 df_ant_trunc = df_comp_base[
-    (df_comp_base["mes"] == mes_anterior_comp_str) & (df_comp_base["dia"] <= dia_atual)
+    (df_comp_base["mes"] == mes_anterior_comp_str) & (df_comp_base["dia"] <= dia_corte)
 ]
 
 pivot_atual_trunc = build_pivot_por_categoria(df_atual_trunc)
@@ -1501,20 +1521,20 @@ else:
         ) else 0.0
         delta_pct = variacao(valor_atual, valor_ant)
         col.metric(
-            f"{linha} (dia 1-{dia_atual})",
+            f"{linha} ({rotulo_periodo})",
             fmt_moeda(valor_atual),
             f"{delta_pct:.1f}% vs. {mes_anterior_comp_str}" if delta_pct is not None else "—",
             help=f"{mes_atual_comp_str}: {fmt_moeda(valor_atual)} · {mes_anterior_comp_str}: {fmt_moeda(valor_ant)}",
         )
 
     tabela_comp = pd.DataFrame({
-        f"{mes_anterior_comp_str} (dia 1-{dia_atual})": [
+        f"{mes_anterior_comp_str} ({rotulo_periodo})": [
             fmt_moeda(dre_ant_trunc.loc[l, mes_anterior_comp_str]) if (
                 not dre_ant_trunc.empty and mes_anterior_comp_str in dre_ant_trunc.columns
             ) else fmt_moeda(0.0)
             for l in dre.index
         ],
-        f"{mes_atual_comp_str} (dia 1-{dia_atual})": [
+        f"{mes_atual_comp_str} ({rotulo_periodo})": [
             fmt_moeda(dre_atual_trunc.loc[l, mes_atual_comp_str]) if (
                 not dre_atual_trunc.empty and mes_atual_comp_str in dre_atual_trunc.columns
             ) else fmt_moeda(0.0)
@@ -1522,6 +1542,58 @@ else:
         ],
     }, index=dre.index)
     st.dataframe(tabela_comp, use_container_width=True)
+
+    # ---- O que explica a variação? ----
+    linhas_detalhe_comp = [l for l, t in DRE_LINES_ORDER if t == "detalhe"]
+    contribuicoes = []
+    for linha in linhas_detalhe_comp:
+        v_atual = dre_atual_trunc.loc[linha, mes_atual_comp_str] if (
+            not dre_atual_trunc.empty and linha in dre_atual_trunc.index
+            and mes_atual_comp_str in dre_atual_trunc.columns
+        ) else 0.0
+        v_ant = dre_ant_trunc.loc[linha, mes_anterior_comp_str] if (
+            not dre_ant_trunc.empty and linha in dre_ant_trunc.index
+            and mes_anterior_comp_str in dre_ant_trunc.columns
+        ) else 0.0
+        contribuicoes.append((linha, v_atual - v_ant))
+
+    caixa_atual_tot = dre_atual_trunc.loc["Geração de Caixa Realizada", mes_atual_comp_str] if (
+        not dre_atual_trunc.empty and mes_atual_comp_str in dre_atual_trunc.columns
+    ) else 0.0
+    caixa_ant_tot = dre_ant_trunc.loc["Geração de Caixa Realizada", mes_anterior_comp_str] if (
+        not dre_ant_trunc.empty and mes_anterior_comp_str in dre_ant_trunc.columns
+    ) else 0.0
+    delta_caixa_tot = caixa_atual_tot - caixa_ant_tot
+
+    contribuicoes.sort(key=lambda x: abs(x[1]), reverse=True)
+    contribuicoes_relevantes = [c for c in contribuicoes if abs(c[1]) >= 500][:3]
+
+    if contribuicoes_relevantes:
+        st.markdown("**💡 O que mais explica essa variação:**")
+        for linha, delta in contribuicoes_relevantes:
+            if linha in LINHAS_META_SUPERAR:
+                # Linha "positiva": delta>0 significa que aumentou de verdade,
+                # e isso ajuda o resultado (mais receita/lucro/caixa é bom).
+                aumentou = delta > 0
+                ajudou = aumentou
+            else:
+                # Linha de custo (armazenada negativa): olha a MAGNITUDE do
+                # gasto, não o sinal do delta — delta negativo aqui significa
+                # que o custo ficou mais negativo, ou seja, o GASTO aumentou.
+                aumentou = delta < 0
+                ajudou = not aumentou  # gasto menor ajuda o resultado
+            direcao_valor = "aumentou" if aumentou else "diminuiu"
+            efeito = "ajudou a melhorar" if ajudou else "pesou contra"
+            st.markdown(f"- **{linha}** {direcao_valor} {fmt_moeda(abs(delta))} — isso {efeito} o resultado.")
+
+        maior_linha, maior_delta = contribuicoes_relevantes[0]
+        if abs(delta_caixa_tot) < abs(maior_delta) * 0.5:
+            st.info(
+                f"📌 Resumo: mesmo com a mudança em **{maior_linha}** "
+                f"({fmt_moeda(abs(maior_delta))}), o saldo de caixa no total variou pouco "
+                f"({fmt_moeda(delta_caixa_tot)}) — outra linha (veja acima) absorveu boa "
+                f"parte do efeito."
+            )
     botao_exportar(tabela_comp, "comparativo_mesmo_periodo")
 
 st.divider()
