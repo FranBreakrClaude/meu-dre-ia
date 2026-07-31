@@ -1205,37 +1205,34 @@ metas_atuais = carregar_metas()
 
 st.divider()
 
-# ---- Projeção: mescla Realizado com Projetado (contas a pagar/receber) ----
+# ---- Projeção: Realizado até o mês atual, Projetado só nos meses futuros ----
 pivot_categoria_proj = build_pivot_por_categoria(df_projetado)
 dre_proj = build_dre(pivot_categoria_proj)
 
+mes_atual_str = datetime.today().strftime("%Y-%m")
 todos_os_meses = sorted(set(dre.columns) | set(dre_proj.columns if not dre_proj.empty else []))
 dre_completo = pd.DataFrame(index=dre.index, columns=todos_os_meses, dtype=float)
 status_por_mes = {}
 
 for mes in todos_os_meses:
-    tem_realizado = mes in dre.columns and dre[mes].abs().sum() > 0
-    tem_projetado = (not dre_proj.empty) and mes in dre_proj.columns and dre_proj[mes].abs().sum() > 0
     valor_real = dre[mes] if mes in dre.columns else 0.0
     valor_proj = dre_proj[mes] if (not dre_proj.empty and mes in dre_proj.columns) else 0.0
-    if tem_realizado and tem_projetado:
-        dre_completo[mes] = valor_real + valor_proj
-        status_por_mes[mes] = "Misto"
-    elif tem_realizado:
+    if mes <= mes_atual_str:
+        # Mês já realizado (ou em curso): só considera o que já foi
+        # efetivamente pago/recebido — contas a pagar/receber ainda em
+        # aberto NÃO entram aqui, mesmo que estejam vencidas.
         dre_completo[mes] = valor_real
         status_por_mes[mes] = "Realizado"
-    elif tem_projetado:
+    else:
+        # Mês futuro: usa só o projetado (contas a pagar/receber agendadas).
         dre_completo[mes] = valor_proj
         status_por_mes[mes] = "Projetado"
-    else:
-        dre_completo[mes] = 0.0
-        status_por_mes[mes] = "Sem dados"
 
 # ---- Tabela DRE comparativa ----
 st.subheader("DRE Comparativa Mês a Mês")
 st.caption(
-    "🟩 Realizado (já pago/recebido) · 🟨 Projetado (contas a pagar/receber agendadas, "
-    "ainda não liquidadas) · 🟧 Misto (mês em andamento: parte já realizada, parte projetada)."
+    "🟩 Realizado (só o que já foi de fato pago/recebido, até o mês atual) · "
+    "🟨 Projetado (meses futuros, baseado em contas a pagar/receber já agendadas no Nibo)."
 )
 
 dre_display_fmt = dre_completo.copy().map(fmt_moeda)
