@@ -11,6 +11,7 @@ Segurança: o token NUNCA fica no código. Ele é lido de st.secrets, que no
 Streamlit Cloud é configurado em Settings > Secrets (nunca vai pro GitHub).
 """
 
+import hashlib
 import io
 import json
 import os
@@ -715,6 +716,55 @@ def simular_metas(dre: pd.DataFrame, pivot_categoria: pd.DataFrame, meta_margem_
 
 st.set_page_config(page_title="DRE Gerencial", layout="wide", page_icon="📊")
 
+
+# =========================================================================
+# LOGIN — usuário e senha, configurados em st.secrets["usuarios"]
+# =========================================================================
+def _hash_senha(texto: str) -> str:
+    return hashlib.sha256(texto.encode("utf-8")).hexdigest()
+
+
+def verificar_login():
+    if st.session_state.get("autenticado"):
+        return  # já logado, segue pro resto do app
+
+    st.markdown(f"""
+    <div style="display:flex; justify-content:center; margin-top:60px;">
+        <img src="data:image/png;base64,{BREAKR_LOGO_B64}" style="height:60px;">
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<h3 style='text-align:center;'>Acesso ao DRE Gerencial</h3>", unsafe_allow_html=True)
+
+    usuarios_cadastrados = st.secrets.get("usuarios", {})
+    if not usuarios_cadastrados:
+        st.error(
+            "⚠️ Nenhum usuário configurado nos Secrets deste app. Adicione uma "
+            "seção `[usuarios]` em Settings > Secrets (veja instruções no README)."
+        )
+        st.stop()
+
+    _, col_form, _ = st.columns([1, 1.2, 1])
+    with col_form:
+        with st.form("login_form"):
+            usuario_input = st.text_input("Usuário")
+            senha_input = st.text_input("Senha", type="password")
+            entrar = st.form_submit_button("Entrar", use_container_width=True)
+
+        if entrar:
+            hash_esperado = usuarios_cadastrados.get(usuario_input)
+            if hash_esperado and _hash_senha(senha_input) == hash_esperado:
+                st.session_state["autenticado"] = True
+                st.session_state["usuario_logado"] = usuario_input
+                st.rerun()
+            else:
+                st.error("Usuário ou senha incorretos.")
+
+    st.stop()
+
+
+verificar_login()
+
 st.markdown("""
 <style>
     .block-container {padding-top: 2rem;}
@@ -790,6 +840,11 @@ with st.sidebar:
     )
     st.divider()
     st.caption("Fonte: API Nibo · Atualização automática a cada 1h (cache)")
+    st.divider()
+    st.caption(f"👤 Logado como: **{st.session_state.get('usuario_logado', '')}**")
+    if st.button("🚪 Sair", use_container_width=True):
+        st.session_state["autenticado"] = False
+        st.rerun()
 
 buffer_dias = timedelta(days=45)
 date_from_str = (data_inicio - buffer_dias).strftime("%Y-%m-%dT00:00:00Z")
