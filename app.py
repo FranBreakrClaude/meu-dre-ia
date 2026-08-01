@@ -43,6 +43,15 @@ from datetime import datetime, timedelta
 #   - "Despesas administrativas - pró-labore" agora está incluída no
 #     subgrupo administrativo do Custo Fixo.
 
+# Acompanhamentos por descrição — para gastos/projetos específicos que você
+# quer somar à parte (ex: uma obra, um evento, uma campanha pontual).
+# Busca por texto contido na descrição do lançamento (não diferencia
+# maiúsculas/minúsculas). Adicione mais itens nessa lista quando quiser
+# acompanhar outro projeto — não precisa mexer em mais nada no código.
+RESUMOS_DESCRICAO = [
+    "Obra - sala nova",
+]
+
 DRE_STRUCTURE = {
     "Receita Bruta": {
         "sinal": 1,
@@ -1549,6 +1558,54 @@ st.dataframe(tabela_lancamentos_fmt, use_container_width=True, height=400)
 botao_exportar(tabela_lancamentos, "lancamentos_individuais", label="⬇️ Exportar lançamentos")
 
 st.divider()
+
+# ---- Resumo por descrição (acompanhamentos específicos) ----
+if RESUMOS_DESCRICAO:
+    st.subheader("📦 Resumo por descrição")
+    for termo_busca in RESUMOS_DESCRICAO:
+        termo_lower = termo_busca.lower()
+        df_termo = df_raw[df_raw["descricao"].str.lower().str.contains(termo_lower, na=False)]
+        if df_termo.empty:
+            st.caption(f"Nenhum lançamento encontrado com \"{termo_busca}\" na descrição.")
+            continue
+
+        df_termo_real = df_termo[df_termo["status"] == "Realizado"]
+        df_termo_proj = df_termo[df_termo["status"] == "Projetado"]
+
+        def _soma_com_sinal(df_sub):
+            if df_sub.empty:
+                return 0.0
+            return (df_sub["valor"] * df_sub["tipo_cat"].apply(lambda t: 1 if t == "in" else -1)).sum()
+
+        total_real = _soma_com_sinal(df_termo_real)
+        total_proj = _soma_com_sinal(df_termo_proj)
+
+        st.markdown(f"**{termo_busca}**")
+        rc1, rc2, rc3 = st.columns(3)
+        rc1.metric("Já pago/recebido (Realizado)", fmt_moeda(total_real))
+        rc2.metric("Ainda em aberto (Projetado)", fmt_moeda(total_proj))
+        rc3.metric("Total geral", fmt_moeda(total_real + total_proj))
+
+        with st.expander(f"Ver lançamentos de \"{termo_busca}\""):
+            df_termo_disp = df_termo.copy()
+            df_termo_disp["valor_sinal"] = df_termo_disp["valor"] * df_termo_disp["tipo_cat"].apply(
+                lambda t: 1 if t == "in" else -1
+            )
+            data_ref_col_termo = "data_competencia" if regime == "Competência" else "data_pagamento"
+            df_termo_disp = df_termo_disp.sort_values(data_ref_col_termo, ascending=False)
+            tabela_termo = df_termo_disp[[
+                data_ref_col_termo, "status", "categoria", "descricao", "contato", "valor_sinal"
+            ]].rename(columns={
+                data_ref_col_termo: "Data", "status": "Status", "categoria": "Categoria",
+                "descricao": "Descrição", "contato": "Contato", "valor_sinal": "Valor",
+            })
+            tabela_termo["Data"] = tabela_termo["Data"].dt.strftime("%d/%m/%Y")
+            tabela_termo_fmt = tabela_termo.copy()
+            tabela_termo_fmt["Valor"] = tabela_termo_fmt["Valor"].apply(fmt_moeda)
+            st.dataframe(tabela_termo_fmt, use_container_width=True)
+            botao_exportar(tabela_termo, f"resumo_{termo_busca}".replace(" ", "_").replace("-", ""))
+
+    st.divider()
 
 # ---- Comparativo: mesmo dia do mês, mês atual x mês anterior ----
 st.subheader("📆 Comparativo — mesmo período do mês anterior")
