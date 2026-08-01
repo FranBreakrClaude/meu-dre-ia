@@ -52,6 +52,14 @@ RESUMOS_DESCRICAO = [
     "Obra - sala nova",
 ]
 
+# Sócios com valor de pró-labore FIXO (retirada mensal já definida, não
+# proporcional). O restante dos 12% do faturamento (depois de tirar esses
+# valores fixos) é dividido igualmente entre os demais sócios.
+PROLABORE_FIXO = {
+    "Gustavo": 10000.0,
+}
+PROLABORE_RESTANTE_NOME = "Fran"  # quem recebe o que sobrar dos 12%
+
 DRE_STRUCTURE = {
     "Receita Bruta": {
         "sinal": 1,
@@ -1243,24 +1251,62 @@ with kc4:
               f"Administrativo {fmt_moeda(cf_mes)} de {fmt_moeda(receita)} faturados", faixa_max=60)
 
 st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
-st.markdown("**👤 Pró-labore sugerido (12% do faturamento, dividido entre os sócios)**")
+st.markdown("**👤 Pró-labore sugerido (12% do faturamento)**")
 prolabore_sugerido_10pct = receita * 0.12
-prolabore_por_socio_10pct = prolabore_sugerido_10pct / num_socios_painel
-pct_por_socio = 12 / num_socios_painel
-pl_c1, pl_c2 = st.columns(2)
+soma_fixos = sum(PROLABORE_FIXO.values())
+prolabore_restante_bruto = prolabore_sugerido_10pct - soma_fixos
+
+# Regra: o valor do sócio "restante" nunca pode ultrapassar o valor fixo
+# combinado — se ultrapassaria, o excedente vai pro(s) sócio(s) com valor
+# fixo em vez de ir pro restante, mantendo o teto.
+teto_excedeu = prolabore_restante_bruto > soma_fixos
+if teto_excedeu:
+    excedente = prolabore_restante_bruto - soma_fixos
+    prolabore_restante = soma_fixos
+    soma_fixos_ajustada = soma_fixos + excedente
+else:
+    prolabore_restante = prolabore_restante_bruto
+    soma_fixos_ajustada = soma_fixos
+
+# Reparte o valor fixo ajustado proporcionalmente entre quem tem valor fixo
+# (só há um sócio fixo hoje — Gustavo — então ele recebe o ajuste inteiro).
+fator_ajuste = (soma_fixos_ajustada / soma_fixos) if soma_fixos else 1.0
+
+pl_c1, pl_c2, pl_c3 = st.columns(3)
 pl_c1.metric(
     f"Total sugerido (12%) — {ultimo_mes}", fmt_moeda(prolabore_sugerido_10pct),
-    help="12% do faturamento do mês — esse é o total a ser dividido entre todos os "
-         "sócios, não o valor de cada um. Não considera despesas fixas nem meta de "
-         "caixa (pra isso, use o Simulador de metas mais abaixo).",
+    help="12% do faturamento do mês — esse é o total a ser dividido entre os sócios. "
+         "Não considera despesas fixas nem meta de caixa (pra isso, use o Simulador "
+         "de metas mais abaixo).",
 )
-pl_c2.metric(
-    f"Por sócio ({num_socios_painel}x — {fmt_pct(pct_por_socio)} cada)",
-    fmt_moeda(prolabore_por_socio_10pct),
-    help=f"Os 12% totais divididos por {num_socios_painel} sócios = "
-         f"{fmt_pct(pct_por_socio)} do faturamento para cada um. Ajuste o número de "
-         f"sócios na barra lateral.",
+for nome_socio, valor_fixo in PROLABORE_FIXO.items():
+    valor_ajustado = valor_fixo * fator_ajuste
+    pl_c2.metric(
+        f"{nome_socio}" + (" (fixo + excedente)" if teto_excedeu else " (fixo)"),
+        fmt_moeda(valor_ajustado),
+        help=(
+            f"{nome_socio} tem R$ {valor_fixo:,.0f} fixo garantido. Como o valor de "
+            f"{PROLABORE_RESTANTE_NOME} nunca pode ultrapassar o de {nome_socio}, o "
+            f"excedente deste mês foi somado ao fixo dele."
+            if teto_excedeu else
+            f"{nome_socio} retira um valor fixo todo mês, independente do faturamento."
+        ),
+    )
+pl_c3.metric(
+    f"{PROLABORE_RESTANTE_NOME} (restante" + (", no teto" if teto_excedeu else "") + ")",
+    fmt_moeda(prolabore_restante),
+    help=(
+        f"O que sobrar dos 12% depois do(s) valor(es) fixo(s), limitado a nunca "
+        f"ultrapassar o valor combinado dos sócios fixos ({fmt_moeda(soma_fixos)})."
+    ),
 )
+if prolabore_restante_bruto < 0:
+    st.warning(md(
+        f"⚠️ O faturamento deste mês não cobre nem o pró-labore fixo combinado "
+        f"({fmt_moeda(soma_fixos)}) dentro dos 12% sugeridos — o valor de "
+        f"{PROLABORE_RESTANTE_NOME} ficaria negativo ({fmt_moeda(prolabore_restante_bruto)}). "
+        f"Vale revisar o percentual ou os valores fixos combinados."
+    ))
 
 st.divider()
 
