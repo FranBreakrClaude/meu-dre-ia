@@ -868,8 +868,9 @@ with st.sidebar:
         st.cache_data.clear()
     st.divider()
     num_socios_painel = st.number_input(
-        "Número de sócios", min_value=1, max_value=20, value=1, step=1,
-        help="Usado para calcular o pró-labore sugerido por sócio no painel principal.",
+        "Número de sócios", min_value=1, max_value=20, value=2, step=1,
+        help="O pró-labore sugerido (12% do faturamento) é dividido igualmente "
+             "entre esse número de sócios.",
     )
     st.divider()
     st.caption("Fonte: API Nibo · Atualização automática a cada 1h (cache)")
@@ -1242,19 +1243,23 @@ with kc4:
               f"Administrativo {fmt_moeda(cf_mes)} de {fmt_moeda(receita)} faturados", faixa_max=60)
 
 st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
-st.markdown("**👤 Pró-labore sugerido (12% do faturamento)**")
+st.markdown("**👤 Pró-labore sugerido (12% do faturamento, dividido entre os sócios)**")
 prolabore_sugerido_10pct = receita * 0.12
 prolabore_por_socio_10pct = prolabore_sugerido_10pct / num_socios_painel
+pct_por_socio = 12 / num_socios_painel
 pl_c1, pl_c2 = st.columns(2)
 pl_c1.metric(
-    f"Total sugerido — {ultimo_mes}", fmt_moeda(prolabore_sugerido_10pct),
-    help="12% do faturamento do mês, uma referência simples de mercado — não considera "
-         "despesas fixas nem meta de caixa (pra isso, use o Simulador de metas mais abaixo).",
+    f"Total sugerido (12%) — {ultimo_mes}", fmt_moeda(prolabore_sugerido_10pct),
+    help="12% do faturamento do mês — esse é o total a ser dividido entre todos os "
+         "sócios, não o valor de cada um. Não considera despesas fixas nem meta de "
+         "caixa (pra isso, use o Simulador de metas mais abaixo).",
 )
 pl_c2.metric(
-    f"Por sócio ({num_socios_painel}x)", fmt_moeda(prolabore_por_socio_10pct),
-    help="Total sugerido dividido igualmente entre os sócios. Ajuste o número de sócios "
-         "na barra lateral.",
+    f"Por sócio ({num_socios_painel}x — {fmt_pct(pct_por_socio)} cada)",
+    fmt_moeda(prolabore_por_socio_10pct),
+    help=f"Os 12% totais divididos por {num_socios_painel} sócios = "
+         f"{fmt_pct(pct_por_socio)} do faturamento para cada um. Ajuste o número de "
+         f"sócios na barra lateral.",
 )
 
 st.divider()
