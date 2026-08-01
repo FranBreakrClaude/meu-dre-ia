@@ -575,13 +575,13 @@ def gerar_insights(dre: pd.DataFrame, metas: dict, fmt_fn) -> dict:
         delta_margem = margem_fim - margem_inicio
         if delta_margem >= 5:
             destaques.append(
-                f"📈 A margem operacional melhorou de {margem_inicio:.1f}% ({meses_local[0]}) "
-                f"para {margem_fim:.1f}% ({meses_local[-1]})."
+                f"📈 A margem operacional melhorou de {fmt_pct(margem_inicio)} ({meses_local[0]}) "
+                f"para {fmt_pct(margem_fim)} ({meses_local[-1]})."
             )
         elif delta_margem <= -5:
             atencao.append(
-                f"📉 A margem operacional caiu de {margem_inicio:.1f}% ({meses_local[0]}) "
-                f"para {margem_fim:.1f}% ({meses_local[-1]}) — vale investigar o motivo."
+                f"📉 A margem operacional caiu de {fmt_pct(margem_inicio)} ({meses_local[0]}) "
+                f"para {fmt_pct(margem_fim)} ({meses_local[-1]}) — vale investigar o motivo."
             )
 
     # 4) "Não Classificado" relevante (problema de dados, não do negócio)
@@ -592,7 +592,7 @@ def gerar_insights(dre: pd.DataFrame, metas: dict, fmt_fn) -> dict:
             if receita_mes and abs(nc) / abs(receita_mes) >= 0.03 and abs(nc) >= 500:
                 sugestoes.append(
                     f"💡 Em {mes}, {fmt_fn(nc)} ficou em 'Não Classificado' "
-                    f"({abs(nc)/abs(receita_mes)*100:.1f}% da receita do mês) — mapeie essas "
+                    f"({fmt_pct(abs(nc)/abs(receita_mes)*100)} da receita do mês) — mapeie essas "
                     f"categorias no DRE_STRUCTURE para uma visão mais precisa."
                 )
 
@@ -910,6 +910,14 @@ def fmt_moeda(v):
     return f"{sinal}R$ {abs(v):,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def fmt_pct(valor) -> str:
+    if modo_confidencial:
+        return "●●%"
+    if valor is None or pd.isna(valor):
+        return "—"
+    return f"{valor:.1f}%"
+
+
 def md(texto: str) -> str:
     """Escapa o cifrão para exibição segura em st.markdown/warning/success/
     error — sem isso, o Streamlit interpreta pares de '$' como fórmula
@@ -994,7 +1002,7 @@ with st.expander("🎯 Simulador de metas — quanto preciso faturar e gastar?",
         p1, p2, p3, p4 = st.columns(4)
         p1.metric("Receita Bruta necessária", fmt_moeda(sim["receita_sugerida"]))
         p2.metric("Tributos (estimado)", fmt_moeda(sim["tributos_sugeridos"]),
-                   f"{sim['taxa_tributos']*100:.1f}% da receita")
+                   f"{fmt_pct(sim['taxa_tributos']*100)} da receita")
         p3.metric("Receita Líquida", fmt_moeda(sim["receita_liquida_sugerida"]))
         p4.metric("Lucro Operacional", fmt_moeda(sim["lucro_operacional_necessario"]))
 
@@ -1146,16 +1154,16 @@ caixa_ant = dre.loc["Geração de Caixa Realizada", mes_anterior] if mes_anterio
 lucro_op_ant = dre.loc["Lucro Operacional", mes_anterior] if mes_anterior else None
 
 k1.metric("Faturamento", fmt_moeda(receita),
-          f"{variacao(receita, receita_ant):.1f}%" if variacao(receita, receita_ant) is not None else None,
+          fmt_pct(variacao(receita, receita_ant)) if variacao(receita, receita_ant) is not None else None,
           help="Tudo que a empresa recebeu de vendas no mês, antes de pagar qualquer conta.")
-k2.metric("Lucro do Mês", fmt_moeda(lucro_op), f"{margem_op:.1f}% do faturamento",
+k2.metric("Lucro do Mês", fmt_moeda(lucro_op), f"{fmt_pct(margem_op)} do faturamento",
           help="O que sobra do faturamento depois de pagar impostos, fornecedores, salários e "
                "despesas do dia a dia — mas ainda ANTES de investimentos e outras saídas.")
 k3.metric("Lucro vs. mês anterior",
-          f"{variacao(lucro_op, lucro_op_ant):.1f}%" if variacao(lucro_op, lucro_op_ant) is not None else "—",
+          fmt_pct(variacao(lucro_op, lucro_op_ant)) if variacao(lucro_op, lucro_op_ant) is not None else "—",
           help="O lucro deste mês cresceu ou caiu em relação ao mês anterior?")
 k4.metric("Sobra/Falta de Caixa", fmt_moeda(caixa),
-          f"{variacao(caixa, caixa_ant):.1f}%" if variacao(caixa, caixa_ant) is not None else None,
+          fmt_pct(variacao(caixa, caixa_ant)) if variacao(caixa, caixa_ant) is not None else None,
           help="Depois de tudo — lucro, investimentos, empréstimos, retiradas — quanto dinheiro "
                "de fato sobrou (ou faltou) no caixa da empresa este mês.")
 k5.metric("Meses no período", f"{len(meses)}",
@@ -1169,11 +1177,14 @@ def gauge_kpi(titulo, valor_pct, valor_abs_fmt, faixa_max=60):
     cor = BREAKR_AMARELO if valor_pct >= 0 else BREAKR_VERMELHO
     limite = max(abs(valor_pct) * 1.3, faixa_max)
     fig = go.Figure(go.Indicator(
-        mode="gauge+number",
+        mode="gauge" if modo_confidencial else "gauge+number",
         value=valor_pct,
         number={"suffix": "%", "font": {"size": 44, "color": cor}},
         gauge={
-            "axis": {"range": [-limite, limite], "tickcolor": "#5A6472", "tickfont": {"size": 10}},
+            "axis": {
+                "range": [-limite, limite], "tickcolor": "#5A6472", "tickfont": {"size": 10},
+                "showticklabels": not modo_confidencial,
+            },
             "bar": {"color": cor, "thickness": 0.28},
             "bgcolor": "white",
             "borderwidth": 0,
@@ -1322,7 +1333,7 @@ dre_display_fmt = dre_completo.copy().map(fmt_moeda)
 margem_op_row = (dre_completo.loc["Lucro Operacional"] / dre_completo.loc["Receita Bruta"].replace(0, float("nan")) * 100).round(1)
 for mes in todos_os_meses:
     if pd.notna(margem_op_row[mes]):
-        dre_display_fmt.loc["Lucro Operacional", mes] += f"  ({margem_op_row[mes]:.1f}%)"
+        dre_display_fmt.loc["Lucro Operacional", mes] += f"  ({fmt_pct(margem_op_row[mes])})"
 
 # Setinha discreta (▲ verde / ▼ vermelha) comparando com o mês anterior —
 # funciona mesmo sem nenhuma meta definida, pra dar uma leitura visual
@@ -1605,7 +1616,7 @@ else:
         col.metric(
             f"{linha} ({rotulo_periodo})",
             fmt_moeda(valor_atual),
-            f"{delta_pct:.1f}% vs. {mes_anterior_comp_str}" if delta_pct is not None else "—",
+            f"{fmt_pct(delta_pct)} vs. {mes_anterior_comp_str}" if delta_pct is not None else "—",
             help=f"{mes_atual_comp_str}: {fmt_moeda(valor_atual)} · {mes_anterior_comp_str}: {fmt_moeda(valor_ant)}",
         )
 
@@ -1728,9 +1739,10 @@ with c4:
     st.subheader("Margem Operacional (%)")
     fig4 = go.Figure()
     fig4.add_trace(go.Scatter(x=meses, y=margem_op_row, name="Margem Operacional %",
-                               mode="lines+markers", line=dict(color=BREAKR_AMARELO, width=3)))
+                               mode="lines+markers", line=dict(color=BREAKR_AMARELO, width=3),
+                               hoverinfo=hover_confidencial))
     fig4.update_layout(height=380, margin=dict(t=20, b=20, l=10, r=10),
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02))
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02), **layout_confidencial)
     st.plotly_chart(fig4, use_container_width=True)
 
 st.caption("⚠️ Valores em regime de caixa (proporcional ao que já foi efetivamente pago/recebido no Nibo). "
