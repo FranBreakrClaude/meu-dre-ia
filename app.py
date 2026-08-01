@@ -752,13 +752,30 @@ def verificar_login():
             entrar = st.form_submit_button("Entrar", use_container_width=True)
 
         if entrar:
-            hash_esperado = usuarios_cadastrados.get(usuario_input)
-            if hash_esperado and _hash_senha(senha_input) == hash_esperado:
+            # Remove espaços em branco acidentais no início/fim (comum ao
+            # colar usuário ou senha), sem afetar o conteúdo em si.
+            usuario_limpo = usuario_input.strip()
+            senha_limpa = senha_input.strip()
+            hash_esperado = usuarios_cadastrados.get(usuario_limpo)
+            hash_calculado = _hash_senha(senha_limpa)
+            if hash_esperado and hash_calculado == hash_esperado:
                 st.session_state["autenticado"] = True
-                st.session_state["usuario_logado"] = usuario_input
+                st.session_state["usuario_logado"] = usuario_limpo
                 st.rerun()
             else:
                 st.error("Usuário ou senha incorretos.")
+                with st.expander("🔧 Diagnóstico de login (temporário — remover depois de resolver)"):
+                    st.write("Usuários cadastrados nos Secrets:", list(usuarios_cadastrados.keys()))
+                    st.write("Usuário digitado (após remover espaços):", repr(usuario_limpo))
+                    st.write("Esse usuário existe nos Secrets?", usuario_limpo in usuarios_cadastrados)
+                    if hash_esperado:
+                        st.write("Tamanho do hash salvo nos Secrets:", len(hash_esperado))
+                        st.write("Tamanho do hash calculado agora:", len(hash_calculado))
+                        st.write("Os hashes batem?", hash_esperado == hash_calculado)
+                        st.write("Hash salvo (só os 10 primeiros caracteres):", hash_esperado[:10])
+                        st.write("Hash calculado (só os 10 primeiros caracteres):", hash_calculado[:10])
+                    else:
+                        st.write("Não achei nenhum hash salvo para esse usuário.")
 
     st.stop()
 
@@ -814,6 +831,13 @@ token, org_id = get_credentials()
 
 with st.sidebar:
     st.header("Filtros")
+    modo_confidencial = st.checkbox(
+        "🙈 Modo confidencial (oculta valores em R$)",
+        help="Esconde os números em Reais — mantém só o visual (cores, "
+             "setas, formato dos gráficos). Útil pra usar em telas "
+             "compartilhadas ou com outras pessoas por perto.",
+    )
+    st.divider()
     hoje = datetime.today()
     data_inicio = st.date_input("Data inicial", value=hoje.replace(day=1) - timedelta(days=180))
     data_fim = st.date_input(
@@ -879,6 +903,9 @@ if df_raw.empty:
 def fmt_moeda(v):
     if pd.isna(v):
         v = 0.0
+    if modo_confidencial:
+        sinal = "-" if v < 0 else ""
+        return f"{sinal}R$ ●●●●●"
     sinal = "-" if v < 0 else ""
     return f"{sinal}R$ {abs(v):,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -1292,7 +1319,7 @@ st.caption(
 
 dre_display_fmt = dre_completo.copy().map(fmt_moeda)
 
-margem_op_row = (dre_completo.loc["Lucro Operacional"] / dre_completo.loc["Receita Bruta"].replace(0, pd.NA) * 100).round(1)
+margem_op_row = (dre_completo.loc["Lucro Operacional"] / dre_completo.loc["Receita Bruta"].replace(0, float("nan")) * 100).round(1)
 for mes in todos_os_meses:
     if pd.notna(margem_op_row[mes]):
         dre_display_fmt.loc["Lucro Operacional", mes] += f"  ({margem_op_row[mes]:.1f}%)"
@@ -1656,14 +1683,21 @@ st.divider()
 # ---- Gráficos ----
 c1, c2 = st.columns(2)
 
+layout_confidencial = dict(
+    yaxis=dict(showticklabels=False, title=""),
+) if modo_confidencial else {}
+hover_confidencial = "skip" if modo_confidencial else None
+
 with c1:
     st.subheader("Receita x Lucro Operacional")
     fig1 = go.Figure()
-    fig1.add_trace(go.Bar(x=meses, y=dre.loc["Receita Bruta"], name="Receita Bruta", marker_color=BREAKR_PRETO))
+    fig1.add_trace(go.Bar(x=meses, y=dre.loc["Receita Bruta"], name="Receita Bruta",
+                           marker_color=BREAKR_PRETO, hoverinfo=hover_confidencial))
     fig1.add_trace(go.Scatter(x=meses, y=dre.loc["Lucro Operacional"], name="Lucro Operacional",
-                               mode="lines+markers", line=dict(color=BREAKR_AMARELO, width=3)))
+                               mode="lines+markers", line=dict(color=BREAKR_AMARELO, width=3),
+                               hoverinfo=hover_confidencial))
     fig1.update_layout(height=380, margin=dict(t=20, b=20, l=10, r=10),
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02))
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02), **layout_confidencial)
     st.plotly_chart(fig1, use_container_width=True)
 
 with c2:
@@ -1671,8 +1705,8 @@ with c2:
     fig2 = go.Figure()
     fig2.add_trace(go.Scatter(x=meses, y=dre.loc["Geração de Caixa Realizada"], name="Caixa Gerado",
                                mode="lines+markers", fill="tozeroy",
-                               line=dict(color=BREAKR_AMARELO, width=3)))
-    fig2.update_layout(height=380, margin=dict(t=20, b=20, l=10, r=10))
+                               line=dict(color=BREAKR_AMARELO, width=3), hoverinfo=hover_confidencial))
+    fig2.update_layout(height=380, margin=dict(t=20, b=20, l=10, r=10), **layout_confidencial)
     st.plotly_chart(fig2, use_container_width=True)
 
 c3, c4 = st.columns(2)
@@ -1680,12 +1714,14 @@ c3, c4 = st.columns(2)
 with c3:
     st.subheader("Custo Fixo x Investimentos x Despesas Financeiras")
     fig3 = go.Figure()
-    fig3.add_trace(go.Bar(x=meses, y=-dre.loc["Custo Fixo"], name="Custo Fixo", marker_color=BREAKR_VERMELHO))
-    fig3.add_trace(go.Bar(x=meses, y=-dre.loc["Investimentos"], name="Investimentos", marker_color=BREAKR_AMARELO))
+    fig3.add_trace(go.Bar(x=meses, y=-dre.loc["Custo Fixo"], name="Custo Fixo",
+                           marker_color=BREAKR_VERMELHO, hoverinfo=hover_confidencial))
+    fig3.add_trace(go.Bar(x=meses, y=-dre.loc["Investimentos"], name="Investimentos",
+                           marker_color=BREAKR_AMARELO, hoverinfo=hover_confidencial))
     fig3.add_trace(go.Bar(x=meses, y=-dre.loc["Despesas Financeiras"], name="Despesas Financeiras",
-                           marker_color=BREAKR_VERMELHO))
+                           marker_color=BREAKR_VERMELHO, hoverinfo=hover_confidencial))
     fig3.update_layout(height=380, barmode="group", margin=dict(t=20, b=20, l=10, r=10),
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02))
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02), **layout_confidencial)
     st.plotly_chart(fig3, use_container_width=True)
 
 with c4:
