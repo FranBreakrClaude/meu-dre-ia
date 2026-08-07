@@ -1370,12 +1370,18 @@ status_por_mes = {}
 for mes in todos_os_meses:
     valor_real = dre[mes] if mes in dre.columns else 0.0
     valor_proj = dre_proj[mes] if (not dre_proj.empty and mes in dre_proj.columns) else 0.0
-    if mes <= mes_atual_str:
-        # Mês já realizado (ou em curso): só considera o que já foi
+    if mes < mes_atual_str:
+        # Mês já fechado (antes do atual): só considera o que já foi
         # efetivamente pago/recebido — contas a pagar/receber ainda em
         # aberto NÃO entram aqui, mesmo que estejam vencidas.
         dre_completo[mes] = valor_real
         status_por_mes[mes] = "Realizado"
+    elif mes == mes_atual_str:
+        # Mês em curso: soma o que já foi realizado até hoje com o que
+        # ainda está programado (contas a pagar/receber) pro resto do mês
+        # — dá pra ir acompanhando como o mês tende a fechar.
+        dre_completo[mes] = valor_real + valor_proj
+        status_por_mes[mes] = "Planejado"
     else:
         # Mês futuro: usa só o projetado (contas a pagar/receber agendadas).
         dre_completo[mes] = valor_proj
@@ -1384,7 +1390,9 @@ for mes in todos_os_meses:
 # ---- Tabela DRE comparativa ----
 st.subheader("DRE Comparativa Mês a Mês")
 st.caption(
-    "🟩 Realizado (só o que já foi de fato pago/recebido, até o mês atual) · "
+    "🟩 Realizado (mês já fechado, só o que foi de fato pago/recebido) · "
+    "🟧 Planejado (mês em curso: o que já foi pago/recebido até hoje + o que ainda "
+    "está programado pro resto do mês) · "
     "🟨 Projetado (meses futuros, baseado em contas a pagar/receber já agendadas no Nibo)."
 )
 
@@ -1487,7 +1495,7 @@ for linha, tipo in DRE_LINES_ORDER:
 dre_display_fmt = pd.DataFrame(linhas_dados, index=index_labels, columns=todos_os_meses)
 
 # Marca no próprio nome da coluna se aquele mês é Realizado ou Projetado.
-_status_emoji = {"Realizado": "🟩", "Projetado": "🟨"}
+_status_emoji = {"Realizado": "🟩", "Planejado": "🟧", "Projetado": "🟨"}
 novos_nomes_colunas = [
     f"{mes} {_status_emoji.get(status_por_mes.get(mes, ''), '')}".strip() for mes in todos_os_meses
 ]
